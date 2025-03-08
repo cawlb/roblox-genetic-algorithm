@@ -19,7 +19,8 @@ local RAY_DEPTH = 4
 local NUM_DUMMIES = 32 -- because of later code, this number must have 4 as a factor 
 local NUM_GENS = 25 
 local GEN_TIME = 8 -- Changed from 20 to 8 seconds
-local MUTATION_RATE = 0.05
+local MUTATION_RATE = 0.1 -- Increased from 0.05 to encourage more exploration
+local OBSTACLE_PENALTY = 500 -- Penalty for hitting an obstacle
 
 -- Setup workspace
 local function setupWorkspace()
@@ -154,6 +155,9 @@ end
 -- Set up the workspace with required objects
 setupWorkspace()
 
+-- Create a table to track which dummies hit obstacles
+local dummiesHitObstacle = {}
+
 -- Create a function to check for collisions with obstacles
 local function checkObstacleCollisions()
     local obstacles = workspace.Platforms:FindFirstChild("Obstacles")
@@ -170,6 +174,8 @@ local function checkObstacleCollisions()
                     -- Check if the part belongs to a dummy
                     local model = part:FindFirstAncestorOfClass("Model")
                     if model and model:FindFirstChildOfClass("Humanoid") then
+                        -- Record that this dummy hit an obstacle before destroying it
+                        dummiesHitObstacle[model] = true
                         print("Dummy hit an obstacle and was destroyed!")
                         model:Destroy()
                     end
@@ -280,6 +286,9 @@ local function simulateDummy(genes)
 	-- Position the dummy at the start position
 	dummy:PivotTo(workspace.Start.CFrame + Vector3.new(0, 3, 0))
 	
+	-- Store the initial position to track progress
+	local initialPosition = dummy:GetPivot().Position
+	
 	-- Color the dummy based on genes
 	colorDummy(dummy, genes)
 	
@@ -304,6 +313,10 @@ local function simulateDummy(genes)
 		end
 	end
 	
+	-- Store the best position (closest to goal) for fitness calculation
+	local bestPosition = initialPosition
+	local bestDistance = (initialPosition * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+	
 	local connection
 	connection = RunService.Stepped:Connect(function()
 		if not dummy.Parent then 
@@ -314,6 +327,34 @@ local function simulateDummy(genes)
 		
 		-- Get the dummy's position
 		local dummyPos = dummy:GetPivot().Position
+		
+		-- Update best position if this is closer to the goal
+		local currentDistance = (dummyPos * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+		if currentDistance < bestDistance then
+			bestDistance = currentDistance
+			bestPosition = dummyPos
+			
+			-- Add a small visual indicator at the best position
+			if not workspace:FindFirstChild("BestPos_" .. dummy.Name) then
+				local marker = Instance.new("Part")
+				marker.Name = "BestPos_" .. dummy.Name
+				marker.Size = Vector3.new(0.5, 0.5, 0.5)
+				marker.Position = bestPosition
+				marker.Anchored = true
+				marker.CanCollide = false
+				marker.Transparency = 0.5
+				marker.Color = dummy.HumanoidRootPart.Color
+				marker.Shape = Enum.PartType.Ball
+				marker.Parent = workspace
+				
+				-- Destroy the marker when the dummy is destroyed
+				dummy.AncestryChanged:Connect(function(_, parent)
+					if parent == nil and marker and marker.Parent then
+						marker:Destroy()
+					end
+				end)
+			end
+		end
 		
 		-- Calculate weights and actions
 		local weights = getWeights(dummyPos, genes)
@@ -334,6 +375,10 @@ local function simulateDummy(genes)
 		humanoid.Jump = shouldJump
 	end)
 	
+	-- Store the best position with the dummy for fitness calculation
+	dummy:SetAttribute("BestPosition", bestPosition)
+	dummy:SetAttribute("InitialPosition", initialPosition)
+	
 	return dummy
 end
 
@@ -343,7 +388,36 @@ end
 	This is used to find who survived the best, and give them reproduction priority. 
 	Also provides visual feedback when a dummy reaches the goal.
 ]]
-local function calcFitness(dummy)
+local function calcFitness(dummy, wasDestroyed)
+	-- If the dummy hit an obstacle, apply a penalty but still consider its progress
+	if wasDestroyed then
+		-- Get the best position the dummy reached before being destroyed
+		local bestPos = dummy:GetAttribute("BestPosition")
+		local initialPos = dummy:GetAttribute("InitialPosition")
+		
+		if bestPos then
+			-- Calculate distance from best position to goal
+			local bestDistance = (bestPos * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+			
+			-- Calculate how far the dummy moved from its starting position
+			local initialDistance = (initialPos * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+			local progressMade = initialDistance - bestDistance
+			
+			-- Apply obstacle penalty but give credit for progress made
+			if progressMade > 0 then
+				-- The dummy made some progress, so penalize less
+				return OBSTACLE_PENALTY - progressMade
+			else
+				-- The dummy didn't make progress, full penalty
+				return OBSTACLE_PENALTY
+			end
+		else
+			-- No best position recorded, apply full penalty
+			return OBSTACLE_PENALTY
+		end
+	end
+	
+	-- For dummies that are still alive, calculate based on current position
 	local distance = (dummy:GetPivot().Position * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
 	
 	-- Check if the dummy has reached the goal (within 5 studs)
@@ -428,6 +502,9 @@ local function simulateEvolution()
 		print("*                  GENERATION " .. gen .. "                      *")
 		print("*******************************************************")
 		
+		-- Clear the obstacle hit tracking for this generation
+		dummiesHitObstacle = {}
+		
 		-- Start by creating the population for this generation 
 		local dummies = {}
 		for i = 1, NUM_DUMMIES do
@@ -444,7 +521,8 @@ local function simulateEvolution()
 		
 		for i, d in pairs(dummies) do
 			if d and d.Parent then
-				local fitnessScore = calcFitness(d)
+				-- Dummy survived the generation
+				local fitnessScore = calcFitness(d, false)
 				scores[i] = {fitnessScore, genes[i]}
 				
 				-- Check if this dummy reached the goal (score will be very low if it did)
@@ -455,10 +533,12 @@ local function simulateEvolution()
 				-- Destroy all dummies immediately after scoring
 				d:Destroy()
 			else
-				-- If dummy was destroyed during simulation (likely by an obstacle)
+				-- Dummy was destroyed during simulation
 				killedByObstacleCount += 1
-				-- Give it a bad score, but not as bad as ones that never spawned
-				scores[i] = {800, genes[i]}
+				
+				-- Calculate a fitness score that considers how far it got before being destroyed
+				local fitnessScore = calcFitness(dummies[i], true)
+				scores[i] = {fitnessScore, genes[i]}
 			end
 		end
 
@@ -494,7 +574,7 @@ local function simulateEvolution()
 		local sum = 0
 		local count = 0
 		for _, score in ipairs(scores) do
-			if score[1] < 800 then -- Only count valid scores (not killed by obstacles)
+			if score[1] < OBSTACLE_PENALTY then -- Only count valid scores (not killed by obstacles)
 				sum += score[1]
 				count += 1
 			end
@@ -536,6 +616,13 @@ local function simulateEvolution()
 		for _, gene in pairs(genes) do
 			if rand:NextNumber() < MUTATION_RATE then
 				pointMutate(gene)
+			end
+		end
+		
+		-- Clean up any remaining markers
+		for _, obj in pairs(workspace:GetChildren()) do
+			if obj.Name:find("BestPos_") then
+				obj:Destroy()
 			end
 		end
 	end
