@@ -1,8 +1,11 @@
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+print("Starting Genetic Algorithm Server initialization...")
+
 -- Load the simulation manager
 local SimulationManager = require(script.SimulationManager)
+print("SimulationManager module loaded")
 
 -- Create remote events for client-server communication
 local remotes = Instance.new("Folder")
@@ -25,13 +28,18 @@ for name, event in pairs(remoteEvents) do
     event.Parent = remotes
 end
 
+print("Remote events created")
+
 -- Wait for the game to fully load
 game.Loaded:Wait()
 
 -- Check if required objects exist in the workspace
 local function setupWorkspace()
+    print("Setting up workspace...")
+    
     -- Create platforms folder if it doesn't exist
     if not workspace:FindFirstChild("Platforms") then
+        print("Creating Platforms folder")
         local platforms = Instance.new("Folder")
         platforms.Name = "Platforms"
         platforms.Parent = workspace
@@ -49,6 +57,7 @@ local function setupWorkspace()
     
     -- Create start position if it doesn't exist
     if not workspace:FindFirstChild("Start") then
+        print("Creating Start position")
         local start = Instance.new("Part")
         start.Name = "Start"
         start.Size = Vector3.new(8, 1, 8)
@@ -63,6 +72,7 @@ local function setupWorkspace()
     
     -- Create goal position if it doesn't exist
     if not workspace:FindFirstChild("Goal") then
+        print("Creating Goal position")
         local goal = Instance.new("Part")
         goal.Name = "Goal"
         goal.Size = Vector3.new(8, 1, 8)
@@ -76,12 +86,19 @@ local function setupWorkspace()
     end
     
     -- Create some obstacles between start and goal
-    if not workspace:FindFirstChild("Obstacles") then
-        local obstacles = Instance.new("Folder")
+    local obstacles
+    if workspace.Platforms:FindFirstChild("Obstacles") then
+        obstacles = workspace.Platforms.Obstacles
+    else
+        print("Creating Obstacles")
+        obstacles = Instance.new("Folder")
         obstacles.Name = "Obstacles"
         obstacles.Parent = workspace.Platforms
-        
-        -- Create a few obstacles
+    end
+    
+    -- Create a few obstacles if they don't exist
+    if #obstacles:GetChildren() == 0 then
+        print("Creating obstacle blocks")
         local positions = {
             Vector3.new(0, 1, 0),
             Vector3.new(-20, 1, -20),
@@ -104,6 +121,7 @@ local function setupWorkspace()
     
     -- Create dummy template if it doesn't exist
     if not ServerStorage:FindFirstChild("Dummy") then
+        print("Creating Dummy template")
         -- Create a simple dummy template
         local dummy = Instance.new("Model")
         dummy.Name = "Dummy"
@@ -133,12 +151,15 @@ local function setupWorkspace()
         
         dummy.Parent = ServerStorage
     end
+    
+    print("Workspace setup complete")
 end
 
 -- Set up the workspace with required objects
 setupWorkspace()
 
 -- Create a simulation manager instance
+print("Creating simulation manager")
 local simulationManager = SimulationManager.new()
 simulationManager:initialize(
     workspace.Platforms,
@@ -149,10 +170,12 @@ simulationManager:initialize(
 
 -- Connect simulation events to remote events
 simulationManager.events.generationCompleted.Event:Connect(function(generation, bestScore, bestGenes)
+    print("Generation " .. generation .. " completed. Best score: " .. bestScore)
     remoteEvents.generationCompleted:FireAllClients(generation, bestScore, bestGenes)
 end)
 
 simulationManager.events.simulationCompleted.Event:Connect(function(bestScore)
+    print("Simulation completed. Final best score: " .. bestScore)
     remoteEvents.simulationCompleted:FireAllClients(bestScore)
 end)
 
@@ -163,23 +186,32 @@ end)
 
 -- Handle remote events
 remoteEvents.startSimulation.OnServerEvent:Connect(function(player)
+    print("Start simulation requested by " .. player.Name)
     local success, errorMsg = simulationManager:runSimulation()
     if not success then
         warn(errorMsg)
+    else
+        print("Simulation started successfully")
     end
 end)
 
 remoteEvents.stopSimulation.OnServerEvent:Connect(function(player)
+    print("Stop simulation requested by " .. player.Name)
     local success, errorMsg = simulationManager:stopSimulation()
     if not success then
         warn(errorMsg)
+    else
+        print("Simulation stopped successfully")
     end
 end)
 
 remoteEvents.updateConfig.OnServerEvent:Connect(function(player, newConfig)
+    print("Config update requested by " .. player.Name)
     local success, errorMsg = simulationManager:updateConfig(newConfig)
     if not success then
         warn(errorMsg)
+    else
+        print("Configuration updated successfully")
     end
 end)
 

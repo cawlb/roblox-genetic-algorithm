@@ -50,6 +50,12 @@ end
 
 -- Initialize the simulation with the required instances
 function SimulationManager:initialize(platformsFolder, dummyTemplate, startPosition, goalPosition)
+    print("Initializing SimulationManager with:")
+    print("- platformsFolder: " .. (platformsFolder and platformsFolder:GetFullName() or "nil"))
+    print("- dummyTemplate: " .. (dummyTemplate and dummyTemplate:GetFullName() or "nil"))
+    print("- startPosition: " .. (startPosition and startPosition:GetFullName() or "nil"))
+    print("- goalPosition: " .. (goalPosition and goalPosition:GetFullName() or "nil"))
+    
     self.config.platformsFolder = platformsFolder
     self.config.dummyTemplate = dummyTemplate
     self.config.startPosition = startPosition
@@ -63,11 +69,52 @@ end
 
 -- Simulate a single dummy with the given genes
 function SimulationManager:simulateDummy(genes)
+    if not self.config.dummyTemplate then
+        warn("Dummy template is nil!")
+        return nil
+    end
+    
     local dummy = self.config.dummyTemplate:Clone()
+    if not dummy then
+        warn("Failed to clone dummy template!")
+        return nil
+    end
+    
+    -- Ensure the dummy has a humanoid
+    local humanoid = dummy:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        warn("Dummy has no humanoid!")
+        humanoid = Instance.new("Humanoid")
+        humanoid.Parent = dummy
+    end
+    
+    -- Ensure the dummy has a HumanoidRootPart
+    local rootPart = dummy:FindFirstChild("HumanoidRootPart")
+    if not rootPart then
+        warn("Dummy has no HumanoidRootPart!")
+        rootPart = Instance.new("Part")
+        rootPart.Name = "HumanoidRootPart"
+        rootPart.Size = Vector3.new(2, 2, 1)
+        rootPart.Parent = dummy
+        humanoid.RootPart = rootPart
+    end
+    
+    -- Set humanoid properties for better movement
+    humanoid.WalkSpeed = 16
+    humanoid.JumpPower = 50
+    humanoid.JumpHeight = 7.2
+    
+    -- Parent the dummy to workspace
     dummy.Parent = workspace
     
     -- Position the dummy at the start
-    dummy:PivotTo(self.config.startPosition.CFrame)
+    if self.config.startPosition then
+        local startCF = self.config.startPosition.CFrame + Vector3.new(0, 3, 0) -- Lift it above the start platform
+        dummy:PivotTo(startCF)
+        print("Positioned dummy at start: " .. tostring(startCF.Position))
+    else
+        warn("Start position is nil!")
+    end
     
     -- Color the dummy based on genes
     GeneticAlgorithm.colorDummy(dummy, genes)
@@ -78,17 +125,53 @@ function SimulationManager:simulateDummy(genes)
     -- Set up the dummy's behavior
     local connection
     connection = RunService.Stepped:Connect(function()
-        if not dummy.Parent then
-            connection:Disconnect()
+        if not dummy or not dummy.Parent then
+            if connection then
+                connection:Disconnect()
+            end
             return
         end
         
-        local weights = GeneticAlgorithm.getWeights(dummy:GetPivot().Position, genes, self.castParams)
+        if not humanoid or humanoid.Health <= 0 then
+            if connection then
+                connection:Disconnect()
+            end
+            return
+        end
+        
+        -- Get the dummy's position
+        local dummyPos = dummy:GetPivot().Position
+        
+        -- Check if the dummy fell off the platform
+        if dummyPos.Y < -10 then
+            print("Dummy fell off the platform")
+            if connection then
+                connection:Disconnect()
+            end
+            if dummy and dummy.Parent then
+                dummy:Destroy()
+            end
+            return
+        end
+        
+        -- Calculate weights and actions
+        local weights = GeneticAlgorithm.getWeights(dummyPos, genes, self.castParams)
         local shouldMove, shouldJump = GeneticAlgorithm.getActions(weights)
         
         -- Control the dummy's movement
-        dummy.Humanoid:Move(-Vector3.zAxis * (shouldMove and 1 or 0))
-        dummy.Humanoid.Jump = shouldJump
+        if shouldMove then
+            -- Calculate direction towards goal
+            local goalDir = (self.config.goalPosition.Position - dummyPos).Unit
+            goalDir = Vector3.new(goalDir.X, 0, goalDir.Z).Unit -- Flatten to XZ plane
+            
+            -- Move towards goal
+            humanoid:Move(goalDir)
+        else
+            humanoid:Move(Vector3.new(0, 0, 0))
+        end
+        
+        -- Control jumping
+        humanoid.Jump = shouldJump
         
         -- Fire update event for client visualization
         self.events.dummyUpdated:Fire(dummy, weights)
@@ -103,6 +186,8 @@ function SimulationManager:runSimulation()
         return false, "Simulation is already running"
     end
     
+    print("Starting simulation with " .. self.config.numDummies .. " dummies for " .. self.config.numGenerations .. " generations")
+    
     self.config.isRunning = true
     self.config.currentGeneration = 0
     self.config.bestScore = math.huge
@@ -116,7 +201,10 @@ function SimulationManager:runSimulation()
     -- Run the simulation asynchronously
     task.spawn(function()
         for gen = 1, self.config.numGenerations do
-            if not self.config.isRunning then break end
+            if not self.config.isRunning then 
+                print("Simulation stopped early")
+                break 
+            end
             
             self.config.currentGeneration = gen
             print(string.format("Generation %i; Best Fitness Score: %f", gen, self.config.bestScore))
@@ -124,17 +212,29 @@ function SimulationManager:runSimulation()
             -- Create dummies for this generation
             local dummies = {}
             for i = 1, self.config.numDummies do
-                dummies[i] = self:simulateDummy(genes[i])
+                local dummy = self:simulateDummy(genes[i])
+                if dummy then
+                    dummies[i] = dummy
+                end
             end
             
             -- Wait for the generation to complete
+            print("Waiting " .. self.config.generationTime .. " seconds for generation to complete")
             task.wait(self.config.generationTime)
             
             -- Calculate fitness scores
             local scores = {}
-            for i, d in dummies do
-                scores[i] = {GeneticAlgorithm.calcFitness(d, self.config.goalPosition), genes[i]}
-                d:Destroy()
+            for i, d in pairs(dummies) do
+                if d and d.Parent then
+                    local score = GeneticAlgorithm.calcFitness(d, self.config.goalPosition)
+                    scores[i] = {score, genes[i]}
+                    print("Dummy " .. i .. " score: " .. score)
+                    d:Destroy()
+                else
+                    -- If dummy was destroyed (fell off), give it a bad score
+                    scores[i] = {1000, genes[i]}
+                    print("Dummy " .. i .. " was destroyed")
+                end
             end
             
             -- Clear active simulations
@@ -146,36 +246,44 @@ function SimulationManager:runSimulation()
             end)
             
             -- Update best score
-            if scores[1][1] < self.config.bestScore then
+            if scores[1] and scores[1][1] < self.config.bestScore then
                 self.config.bestScore = scores[1][1]
             end
             
             -- Create the next generation through selection, crossover, and mutation
             table.clear(genes)
             for i = 1, self.config.numDummies / 2 - 1, 2 do
-                local g1 = scores[i][2]
-                local g2 = scores[i + 1][2]
-                local c1, c2 = GeneticAlgorithm.crossover(g1, g2)
-                table.insert(genes, c1)
-                table.insert(genes, c2)
-                table.insert(genes, g1)
-                table.insert(genes, g2)
+                if scores[i] and scores[i+1] then
+                    local g1 = scores[i][2]
+                    local g2 = scores[i + 1][2]
+                    local c1, c2 = GeneticAlgorithm.crossover(g1, g2)
+                    table.insert(genes, c1)
+                    table.insert(genes, c2)
+                    table.insert(genes, g1)
+                    table.insert(genes, g2)
+                end
+            end
+            
+            -- If we don't have enough genes, fill with random ones
+            while #genes < self.config.numDummies do
+                table.insert(genes, GeneticAlgorithm.makeRandomGenome())
             end
             
             -- Apply mutations
-            for _, gene in genes do
+            for _, gene in pairs(genes) do
                 if Random.new():NextNumber() < GeneticAlgorithm.MUTATION_RATE then
                     GeneticAlgorithm.pointMutate(gene)
                 end
             end
             
             -- Fire generation completed event
-            self.events.generationCompleted:Fire(gen, self.config.bestScore, scores[1][2])
+            self.events.generationCompleted:Fire(gen, self.config.bestScore, scores[1] and scores[1][2] or nil)
         end
         
         -- Simulation completed
         self.config.isRunning = false
         self.events.simulationCompleted:Fire(self.config.bestScore)
+        print("Simulation completed with best score: " .. self.config.bestScore)
     end)
     
     return true
@@ -190,7 +298,7 @@ function SimulationManager:stopSimulation()
     self.config.isRunning = false
     
     -- Clean up any active dummies
-    for _, dummy in self.config.activeSimulations do
+    for _, dummy in pairs(self.config.activeSimulations) do
         if dummy and dummy.Parent then
             dummy:Destroy()
         end
