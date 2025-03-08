@@ -344,12 +344,20 @@ local function colorDummy(dummy, genes, bloodlineIndex)
     -- Convert to a color
     local color = Color3.fromHex(string.format("%.3x", avg))
     
-    -- Find the closest bloodline color
+    -- Find the closest bloodline color using RGB components
     local closestIndex = 1
-    local closestDistance = (bloodlines[1].color - color).Magnitude
+    local closestDistance = math.sqrt(
+        (bloodlines[1].color.R - color.R)^2 + 
+        (bloodlines[1].color.G - color.G)^2 + 
+        (bloodlines[1].color.B - color.B)^2
+    )
     
     for i = 2, #bloodlines do
-        local distance = (bloodlines[i].color - color).Magnitude
+        local distance = math.sqrt(
+            (bloodlines[i].color.R - color.R)^2 + 
+            (bloodlines[i].color.G - color.G)^2 + 
+            (bloodlines[i].color.B - color.B)^2
+        )
         if distance < closestDistance then
             closestDistance = distance
             closestIndex = i
