@@ -2,7 +2,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local GeneticAlgorithm = require(game.ReplicatedStorage.Shared.GeneticAlgorithm)
+local GeneticAlgorithm = require(ReplicatedStorage.Shared.GeneticAlgorithm)
 
 local SimulationManager = {}
 SimulationManager.__index = SimulationManager

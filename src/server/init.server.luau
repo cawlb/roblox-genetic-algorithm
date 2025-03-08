@@ -2,7 +2,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Load the simulation manager
-local SimulationManager = require(script.Parent.SimulationManager)
+local SimulationManager = require(script.SimulationManager)
 
 -- Create remote events for client-server communication
 local remotes = Instance.new("Folder")
@@ -36,12 +36,14 @@ local function setupWorkspace()
         platforms.Name = "Platforms"
         platforms.Parent = workspace
         
-        -- Create a simple platform
+        -- Create a simple platform (baseplate)
         local platform = Instance.new("Part")
         platform.Name = "Platform1"
-        platform.Size = Vector3.new(20, 1, 20)
+        platform.Size = Vector3.new(100, 1, 100)
         platform.Position = Vector3.new(0, 0, 0)
         platform.Anchored = true
+        platform.Material = Enum.Material.Grass
+        platform.Color = Color3.fromRGB(106, 127, 63)
         platform.Parent = platforms
     end
     
@@ -49,11 +51,12 @@ local function setupWorkspace()
     if not workspace:FindFirstChild("Start") then
         local start = Instance.new("Part")
         start.Name = "Start"
-        start.Size = Vector3.new(4, 1, 4)
-        start.Position = Vector3.new(-8, 1, -8)
+        start.Size = Vector3.new(8, 1, 8)
+        start.Position = Vector3.new(-40, 0.5, -40) -- At the same level as baseplate
         start.Anchored = true
-        start.CanCollide = false
-        start.Transparency = 0.5
+        start.CanCollide = true
+        start.Material = Enum.Material.SmoothPlastic
+        start.Transparency = 0.3
         start.Color = Color3.fromRGB(0, 255, 0)
         start.Parent = workspace
     end
@@ -62,13 +65,41 @@ local function setupWorkspace()
     if not workspace:FindFirstChild("Goal") then
         local goal = Instance.new("Part")
         goal.Name = "Goal"
-        goal.Size = Vector3.new(4, 1, 4)
-        goal.Position = Vector3.new(8, 1, 8)
+        goal.Size = Vector3.new(8, 1, 8)
+        goal.Position = Vector3.new(40, 0.5, 40) -- At the same level as baseplate
         goal.Anchored = true
-        goal.CanCollide = false
-        goal.Transparency = 0.5
+        goal.CanCollide = true
+        goal.Material = Enum.Material.SmoothPlastic
+        goal.Transparency = 0.3
         goal.Color = Color3.fromRGB(255, 0, 0)
         goal.Parent = workspace
+    end
+    
+    -- Create some obstacles between start and goal
+    if not workspace:FindFirstChild("Obstacles") then
+        local obstacles = Instance.new("Folder")
+        obstacles.Name = "Obstacles"
+        obstacles.Parent = workspace.Platforms
+        
+        -- Create a few obstacles
+        local positions = {
+            Vector3.new(0, 1, 0),
+            Vector3.new(-20, 1, -20),
+            Vector3.new(20, 1, 20),
+            Vector3.new(-20, 1, 20),
+            Vector3.new(20, 1, -20)
+        }
+        
+        for i, pos in ipairs(positions) do
+            local obstacle = Instance.new("Part")
+            obstacle.Name = "Obstacle" .. i
+            obstacle.Size = Vector3.new(10, 2, 10)
+            obstacle.Position = pos
+            obstacle.Anchored = true
+            obstacle.Material = Enum.Material.Concrete
+            obstacle.Color = Color3.fromRGB(120, 120, 120)
+            obstacle.Parent = obstacles
+        end
     end
     
     -- Create dummy template if it doesn't exist
