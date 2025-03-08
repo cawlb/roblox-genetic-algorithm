@@ -1,61 +1,43 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-print("Starting Genetic Algorithm Client initialization...")
+print("Genetic Algorithm Client initialized")
+print("The server is running the genetic algorithm simulation automatically.")
+print("You should see NPCs learning to navigate from the green platform to the red platform.")
+print("Each generation will improve as the algorithm selects the best performers.")
+print("Watch the console for progress updates.")
 
--- Load the UI module
-local GeneticAlgorithmUI
-local success, err = pcall(function()
-    GeneticAlgorithmUI = require(script.GeneticAlgorithmUI)
-end)
-
-if not success then
-    warn("Failed to load GeneticAlgorithmUI: " .. tostring(err))
-    return
+-- Create a simple message in the player's screen
+local player = Players.LocalPlayer
+if player then
+    local playerGui = player:WaitForChild("PlayerGui")
+    
+    -- Create ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "GeneticAlgorithmInfo"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = playerGui
+    
+    -- Create info frame
+    local infoFrame = Instance.new("Frame")
+    infoFrame.Name = "InfoFrame"
+    infoFrame.Size = UDim2.new(0, 300, 0, 100)
+    infoFrame.Position = UDim2.new(0.5, -150, 0, 20)
+    infoFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    infoFrame.BackgroundTransparency = 0.3
+    infoFrame.BorderSizePixel = 0
+    infoFrame.Parent = screenGui
+    
+    -- Add info text
+    local infoText = Instance.new("TextLabel")
+    infoText.Name = "InfoText"
+    infoText.Size = UDim2.new(1, -20, 1, -20)
+    infoText.Position = UDim2.new(0, 10, 0, 10)
+    infoText.BackgroundTransparency = 1
+    infoText.Text = "Genetic Algorithm Simulation Running\nNPCs are learning to navigate from the green platform to the red platform.\nWatch as they improve with each generation!"
+    infoText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    infoText.TextSize = 14
+    infoText.Font = Enum.Font.SourceSans
+    infoText.TextWrapped = true
+    infoText.TextXAlignment = Enum.TextXAlignment.Left
+    infoText.Parent = infoFrame
 end
-
-print("GeneticAlgorithmUI module loaded")
-
--- Initialize the UI
-local ui
-success, err = pcall(function()
-    ui = GeneticAlgorithmUI.init()
-end)
-
-if not success then
-    warn("Failed to initialize UI: " .. tostring(err))
-    return
-end
-
-print("Genetic Algorithm Client initialized!")
-
--- Wait for the server to be ready
-task.spawn(function()
-    task.wait(2)
-    
-    -- Check if the remote events exist
-    local remotes = ReplicatedStorage:FindFirstChild("GeneticAlgorithmRemotes")
-    if not remotes then
-        warn("GeneticAlgorithmRemotes folder not found in ReplicatedStorage")
-        return
-    end
-    
-    local getStatus = remotes:FindFirstChild("getStatus")
-    if not getStatus then
-        warn("getStatus RemoteFunction not found")
-        return
-    end
-    
-    -- Try to get the status from the server
-    local success, status = pcall(function()
-        return getStatus:InvokeServer()
-    end)
-    
-    if not success then
-        warn("Failed to get status from server: " .. tostring(status))
-        return
-    end
-    
-    print("Successfully connected to server")
-    print("Server status: " .. (status.isRunning and "Running" or "Not Running"))
-end)
