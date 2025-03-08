@@ -204,15 +204,17 @@ local function getWeights(pos, genes)
 	
 	-- Create a new cf pointing downwards
 	local refCF = CFrame.fromMatrix(pos, Vector3.xAxis, -Vector3.zAxis)
-	for i = 1, NUM_RAYS * 2, 2 do
+	for i = 1, NUM_RAYS * 4, 4 do
 		local result = workspace:Raycast(pos, refCF.LookVector * RAY_DEPTH, CAST_PARAMS)
 		local dist = RAY_DEPTH -- default to farthest away dist 
 		if result and result.Instance then
 			dist = (result.Position - pos).Magnitude -- if we have a hit, we update dist accordingly 
 		end
-		-- For each cast, we have to update the jump and move weights
-		table.insert(weights, genes[i] * (dist/RAY_DEPTH))
-		table.insert(weights, genes[i + 1] * (dist/RAY_DEPTH))
+		-- For each cast, we have to update all four weights
+		table.insert(weights, genes[i] * (dist/RAY_DEPTH))       -- Forward
+		table.insert(weights, genes[i + 1] * (dist/RAY_DEPTH))   -- Jump
+		table.insert(weights, genes[i + 2] * (dist/RAY_DEPTH))   -- Left
+		table.insert(weights, genes[i + 3] * (dist/RAY_DEPTH))   -- Right
 		
 		-- Rotate ray generator cf up to next angle 
 		refCF *= CFrame.Angles(MAX_RAY_ANGLE/NUM_RAYS, 0, 0)
@@ -226,17 +228,25 @@ end
 local function getActions(weights)
 	local moveSum = 0
 	local jumpSum = 0 
+	local moveLeftSum = 0
+	local moveRightSum = 0
+	
 	for i, w in weights do
-		-- Since each ray has one move and one jump weight
-		-- we add the weight to jump every other iteration, and vice versa for move 
-		if i % 2 == 0 then
-			jumpSum += w
-		else
-			moveSum += w 			
+		-- Since each ray has multiple weights now, we distribute them
+		local weightIndex = i % 4
+		if weightIndex == 1 then
+			moveSum += w -- Forward movement
+		elseif weightIndex == 2 then
+			jumpSum += w -- Jump
+		elseif weightIndex == 3 then
+			moveLeftSum += w -- Left movement
+		elseif weightIndex == 0 then
+			moveRightSum += w -- Right movement
 		end
 	end
+	
 	-- if our sums are positive, that means we do the action
-	return moveSum > 0, jumpSum > 0
+	return moveSum > 0, jumpSum > 0, moveLeftSum > 0, moveRightSum > 0
 end 
 
 --[[
@@ -247,8 +257,9 @@ end
 ]]
 local function makeRandomGenome()
 	local genes = {}
-	-- Each ray has two values: one for jump, one for move, so our genome is 2 times rays  
-	for i = 1, NUM_RAYS * 2 do
+	-- Each ray has four values: forward, jump, left, right
+	-- so our genome is 4 times rays  
+	for i = 1, NUM_RAYS * 4 do
 		table.insert(genes, rand:NextNumber(-1, 1))
 	end
 	return genes
@@ -358,18 +369,35 @@ local function simulateDummy(genes)
 		
 		-- Calculate weights and actions
 		local weights = getWeights(dummyPos, genes)
-		local shouldMove, shouldJump = getActions(weights)
+		local shouldMoveForward, shouldJump, shouldMoveLeft, shouldMoveRight = getActions(weights)
 		
 		-- Calculate direction towards goal
 		local goalDir = (workspace.Goal.Position - dummyPos).Unit
 		goalDir = Vector3.new(goalDir.X, 0, goalDir.Z).Unit -- Flatten to XZ plane
 		
-		-- Move the dummy
-		if shouldMove then
-			humanoid:Move(goalDir)
-		else
-			humanoid:Move(Vector3.new(0, 0, 0))
+		-- Calculate left and right directions relative to the goal direction
+		local rightDir = Vector3.new(-goalDir.Z, 0, goalDir.X)
+		local leftDir = Vector3.new(goalDir.Z, 0, -goalDir.X)
+		
+		-- Combine all movement directions
+		local moveDir = Vector3.new(0, 0, 0)
+		if shouldMoveForward then
+			moveDir += goalDir
 		end
+		if shouldMoveLeft then
+			moveDir += leftDir
+		end
+		if shouldMoveRight then
+			moveDir += rightDir
+		end
+		
+		-- Normalize the direction if it's not zero
+		if moveDir.Magnitude > 0 then
+			moveDir = moveDir.Unit
+		end
+		
+		-- Move the dummy
+		humanoid:Move(moveDir)
 		
 		-- Make the dummy jump
 		humanoid.Jump = shouldJump
@@ -479,7 +507,7 @@ end
 	runs stale on a bad solution or the environment changes. 
 ]]
 local function pointMutate(gene)
-	local idx = rand:NextInteger(1, NUM_RAYS * 2)
+	local idx = rand:NextInteger(1, NUM_RAYS * 4)
 	gene[idx] = rand:NextNumber(-1, 1)
 	return gene
 end
