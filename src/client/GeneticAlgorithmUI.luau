@@ -3,24 +3,68 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local GeneticAlgorithmUI = {}
 
+print("Loading GeneticAlgorithmUI module...")
+
 -- Get remote events
-local remotes = ReplicatedStorage:WaitForChild("GeneticAlgorithmRemotes")
-local remoteEvents = {
-    startSimulation = remotes:WaitForChild("startSimulation"),
-    stopSimulation = remotes:WaitForChild("stopSimulation"),
-    updateConfig = remotes:WaitForChild("updateConfig"),
-    getStatus = remotes:WaitForChild("getStatus"),
-    generationCompleted = remotes:WaitForChild("generationCompleted"),
-    simulationCompleted = remotes:WaitForChild("simulationCompleted")
-}
+local remotes
+local remoteEvents = {}
+
+local function setupRemoteEvents()
+    print("Setting up remote events...")
+    remotes = ReplicatedStorage:WaitForChild("GeneticAlgorithmRemotes", 10)
+    if not remotes then
+        error("GeneticAlgorithmRemotes folder not found in ReplicatedStorage after 10 seconds")
+    end
+    
+    local requiredEvents = {
+        "startSimulation",
+        "stopSimulation",
+        "updateConfig",
+        "getStatus",
+        "generationCompleted",
+        "simulationCompleted"
+    }
+    
+    for _, eventName in ipairs(requiredEvents) do
+        local event = remotes:WaitForChild(eventName, 5)
+        if not event then
+            error(eventName .. " not found in GeneticAlgorithmRemotes")
+        end
+        remoteEvents[eventName] = event
+        print("Found remote event: " .. eventName)
+    end
+    
+    print("Remote events setup complete")
+end
+
+local success, err = pcall(setupRemoteEvents)
+if not success then
+    warn("Failed to set up remote events: " .. tostring(err))
+    -- We'll continue anyway and try to create the UI
+end
 
 -- UI elements
 local ui = {}
 
 -- Create the main UI
 function GeneticAlgorithmUI.createUI()
+    print("Creating UI...")
     local player = Players.LocalPlayer
-    local playerGui = player:WaitForChild("PlayerGui")
+    if not player then
+        error("LocalPlayer not found")
+    end
+    
+    local playerGui = player:WaitForChild("PlayerGui", 5)
+    if not playerGui then
+        error("PlayerGui not found for LocalPlayer")
+    end
+    
+    -- Check if UI already exists and remove it
+    local existingUI = playerGui:FindFirstChild("GeneticAlgorithmUI")
+    if existingUI then
+        existingUI:Destroy()
+        print("Removed existing UI")
+    end
     
     -- Create ScreenGui
     local screenGui = Instance.new("ScreenGui")
@@ -181,17 +225,47 @@ function GeneticAlgorithmUI.createUI()
         ui[buttonInfo.name .. "Button"] = button
     end
     
+    -- Add status message
+    local statusMessage = Instance.new("TextLabel")
+    statusMessage.Name = "StatusMessage"
+    statusMessage.Size = UDim2.new(1, -20, 0, 40)
+    statusMessage.Position = UDim2.new(0, 10, 0, 350)
+    statusMessage.BackgroundTransparency = 1
+    statusMessage.Text = "Ready"
+    statusMessage.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statusMessage.TextSize = 14
+    statusMessage.Font = Enum.Font.SourceSans
+    statusMessage.TextXAlignment = Enum.TextXAlignment.Left
+    statusMessage.TextWrapped = true
+    statusMessage.Parent = mainFrame
+    
+    ui.StatusMessage = statusMessage
+    
     -- Store UI elements
     ui.screenGui = screenGui
     ui.mainFrame = mainFrame
     
+    print("UI created successfully")
     return ui
 end
 
 -- Connect UI events
 function GeneticAlgorithmUI.connectEvents(ui)
+    print("Connecting UI events...")
+    
+    if not remoteEvents.startSimulation or not remoteEvents.stopSimulation then
+        ui.StatusMessage.Text = "Error: Remote events not found. Server may not be ready."
+        ui.StartButton.Active = false
+        ui.StopButton.Active = false
+        warn("Cannot connect UI events: Remote events not found")
+        return
+    end
+    
     -- Start button
     ui.StartButton.MouseButton1Click:Connect(function()
+        print("Start button clicked")
+        ui.StatusMessage.Text = "Starting simulation..."
+        
         -- Update configuration before starting
         local config = {
             numDummies = tonumber(ui.NumDummiesInput.Text) or 32,
@@ -207,28 +281,89 @@ function GeneticAlgorithmUI.connectEvents(ui)
         end
         
         -- Update configuration
-        remoteEvents.updateConfig:FireServer(config)
+        local success, err = pcall(function()
+            remoteEvents.updateConfig:FireServer(config)
+        end)
+        
+        if not success then
+            ui.StatusMessage.Text = "Error updating config: " .. tostring(err)
+            warn("Error updating config: " .. tostring(err))
+            return
+        end
         
         -- Start simulation
-        remoteEvents.startSimulation:FireServer()
+        success, err = pcall(function()
+            remoteEvents.startSimulation:FireServer()
+        end)
+        
+        if not success then
+            ui.StatusMessage.Text = "Error starting simulation: " .. tostring(err)
+            warn("Error starting simulation: " .. tostring(err))
+            return
+        end
+        
+        ui.StatusMessage.Text = "Simulation started"
     end)
     
     -- Stop button
     ui.StopButton.MouseButton1Click:Connect(function()
-        remoteEvents.stopSimulation:FireServer()
+        print("Stop button clicked")
+        ui.StatusMessage.Text = "Stopping simulation..."
+        
+        local success, err = pcall(function()
+            remoteEvents.stopSimulation:FireServer()
+        end)
+        
+        if not success then
+            ui.StatusMessage.Text = "Error stopping simulation: " .. tostring(err)
+            warn("Error stopping simulation: " .. tostring(err))
+            return
+        end
+        
+        ui.StatusMessage.Text = "Simulation stopped"
     end)
     
     -- Generation completed event
-    remoteEvents.generationCompleted.OnClientEvent:Connect(function(generation, bestScore, bestGenes)
-        local status = remoteEvents.getStatus:InvokeServer()
-        updateStatusDisplay(ui, status)
-    end)
+    if remoteEvents.generationCompleted then
+        remoteEvents.generationCompleted.OnClientEvent:Connect(function(generation, bestScore, bestGenes)
+            print("Generation completed event received: " .. generation)
+            
+            local success, status = pcall(function()
+                return remoteEvents.getStatus:InvokeServer()
+            end)
+            
+            if success then
+                updateStatusDisplay(ui, status)
+                ui.StatusMessage.Text = "Generation " .. generation .. " completed"
+            else
+                warn("Error getting status: " .. tostring(status))
+            end
+        end)
+    else
+        warn("generationCompleted event not found")
+    end
     
     -- Simulation completed event
-    remoteEvents.simulationCompleted.OnClientEvent:Connect(function(bestScore)
-        local status = remoteEvents.getStatus:InvokeServer()
-        updateStatusDisplay(ui, status)
-    end)
+    if remoteEvents.simulationCompleted then
+        remoteEvents.simulationCompleted.OnClientEvent:Connect(function(bestScore)
+            print("Simulation completed event received")
+            
+            local success, status = pcall(function()
+                return remoteEvents.getStatus:InvokeServer()
+            end)
+            
+            if success then
+                updateStatusDisplay(ui, status)
+                ui.StatusMessage.Text = "Simulation completed. Best score: " .. bestScore
+            else
+                warn("Error getting status: " .. tostring(status))
+            end
+        end)
+    else
+        warn("simulationCompleted event not found")
+    end
+    
+    print("UI events connected")
 end
 
 -- Update status display
@@ -241,16 +376,34 @@ end
 
 -- Initialize the UI
 function GeneticAlgorithmUI.init()
+    print("Initializing GeneticAlgorithmUI...")
+    
     local ui = GeneticAlgorithmUI.createUI()
     GeneticAlgorithmUI.connectEvents(ui)
     
     -- Initial status update
     task.spawn(function()
-        task.wait(1) -- Wait a bit for the server to initialize
-        local status = remoteEvents.getStatus:InvokeServer()
-        updateStatusDisplay(ui, status)
+        task.wait(2) -- Wait a bit for the server to initialize
+        
+        if remoteEvents.getStatus then
+            local success, status = pcall(function()
+                return remoteEvents.getStatus:InvokeServer()
+            end)
+            
+            if success then
+                updateStatusDisplay(ui, status)
+                ui.StatusMessage.Text = "Connected to server"
+            else
+                ui.StatusMessage.Text = "Error connecting to server: " .. tostring(status)
+                warn("Error getting status: " .. tostring(status))
+            end
+        else
+            ui.StatusMessage.Text = "Error: getStatus remote function not found"
+            warn("getStatus remote function not found")
+        end
     end)
     
+    print("GeneticAlgorithmUI initialized")
     return ui
 end
 
