@@ -388,14 +388,18 @@ local function simulateEvolution()
 	local bestScore = math.huge
 	local goalReached = false
 	for gen = 1, NUM_GENS do
-		print(string.format("Generation %i; Best Fitness Score: %f", gen, bestScore))
+		print("\n\n")
+		print("*******************************************************")
+		print("*                  GENERATION " .. gen .. "                      *")
+		print("*******************************************************")
+		
 		-- Start by creating the population for this generation 
 		local dummies = {}
 		for i = 1, NUM_DUMMIES do
-			print("Creating dummy " .. i)
 			dummies[i] = simulateDummy(genes[i])
 		end
 		print("Created " .. #dummies .. " dummies for generation " .. gen)
+		print("Simulating for " .. GEN_TIME .. " seconds...")
 		task.wait(GEN_TIME)
 
 		local scores = {}
@@ -423,10 +427,25 @@ local function simulateEvolution()
 			return a[1] < b[1]
 		end)
 		
-		-- Display detailed fitness scores for this generation
-		print("===== FITNESS SCORES FOR GENERATION " .. gen .. " =====")
-		print("Best score: " .. scores[1][1])
-		print("Top 5 scores:")
+		-- Update all time best score 
+		if scores[1] and scores[1][1] < bestScore then
+			bestScore = scores[1][1]
+			
+			-- Check if the best dummy reached the goal
+			if scores[1][1] < 5 then
+				goalReached = true
+				print("\n!!! SUCCESS! A dummy has reached the goal! !!!")
+			end
+		end
+		
+		-- Display detailed fitness scores for this generation with very clear formatting
+		print("\n=======================================================")
+		print("                FITNESS SCORES SUMMARY                 ")
+		print("=======================================================")
+		print("GENERATION " .. gen .. " BEST SCORE: " .. string.format("%.2f", scores[1][1]))
+		print("ALL-TIME BEST SCORE: " .. string.format("%.2f", bestScore))
+		print("-------------------------------------------------------")
+		print("TOP 5 SCORES THIS GENERATION:")
 		for i = 1, math.min(5, #scores) do
 			print("  #" .. i .. ": " .. string.format("%.2f", scores[i][1]))
 		end
@@ -441,23 +460,11 @@ local function simulateEvolution()
 			end
 		end
 		local average = count > 0 and (sum / count) or 0
-		print("Average score: " .. string.format("%.2f", average))
-		print("Dummies that reached goal: " .. reachedGoalCount)
-		print("================================================")
+		print("-------------------------------------------------------")
+		print("AVERAGE SCORE: " .. string.format("%.2f", average))
+		print("DUMMIES THAT REACHED GOAL: " .. reachedGoalCount)
+		print("=======================================================")
 		
-		-- Update all time best score 
-		if scores[1] and scores[1][1] < bestScore then
-			bestScore = scores[1][1]
-			
-			-- Check if the best dummy reached the goal
-			if scores[1][1] < 5 then
-				goalReached = true
-				print("SUCCESS! A dummy has reached the goal!")
-			end
-		end
-		
-		-- Print statistics for this generation
-		print(string.format("Generation %i complete. %i dummies reached the goal.", gen, reachedGoalCount))
 		if goalReached then
 			print("Best dummy has reached the goal! Continuing evolution to optimize path...")
 		end
@@ -492,11 +499,15 @@ local function simulateEvolution()
 		end
 	end
 	
-	print("Genetic algorithm simulation completed!")
+	print("\n\n*******************************************************")
+	print("*         GENETIC ALGORITHM SIMULATION COMPLETE        *")
+	print("*******************************************************")
 	if goalReached then
 		print("SUCCESS: Dummies successfully evolved to reach the goal!")
+		print("Final best fitness score: " .. string.format("%.2f", bestScore))
 	else
 		print("The simulation ended without any dummies reaching the goal.")
+		print("Best fitness score achieved: " .. string.format("%.2f", bestScore))
 	end
 end
 
