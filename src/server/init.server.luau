@@ -223,16 +223,58 @@ local function checkObstacleCollisions()
                 for _, part in ipairs(partsInObstacle) do
                     -- Check if the part belongs to a dummy
                     local model = part:FindFirstAncestorOfClass("Model")
-                    if model and model:FindFirstChildOfClass("Humanoid") then
+                    if model and model:FindFirstChildOfClass("Humanoid") and model.Parent == workspace then
                         -- Record that this dummy hit an obstacle before destroying it
                         dummiesHitObstacle[model] = true
                         print("Dummy hit an obstacle and was destroyed!")
+                        
+                        -- Create a small explosion effect
+                        local explosion = Instance.new("Explosion")
+                        explosion.BlastRadius = 0
+                        explosion.BlastPressure = 0
+                        explosion.Position = model:GetPivot().Position
+                        explosion.DestroyJointRadiusPercent = 0
+                        explosion.ExplosionType = Enum.ExplosionType.NoCraters
+                        explosion.Visible = true
+                        explosion.Parent = workspace
+                        
+                        -- Destroy the dummy immediately
                         model:Destroy()
                     end
                 end
             end
         end
     end)
+    
+    -- Also add TouchInterest to obstacles for more reliable detection
+    for _, obstacle in pairs(obstacles:GetChildren()) do
+        if obstacle:IsA("BasePart") then
+            -- Add a touched event to each obstacle
+            obstacle.Touched:Connect(function(otherPart)
+                local model = otherPart:FindFirstAncestorOfClass("Model")
+                if model and model:FindFirstChildOfClass("Humanoid") and model.Parent == workspace then
+                    -- Check if we already processed this dummy
+                    if not dummiesHitObstacle[model] then
+                        dummiesHitObstacle[model] = true
+                        print("Dummy touched obstacle and was destroyed!")
+                        
+                        -- Create a small explosion effect
+                        local explosion = Instance.new("Explosion")
+                        explosion.BlastRadius = 0
+                        explosion.BlastPressure = 0
+                        explosion.Position = model:GetPivot().Position
+                        explosion.DestroyJointRadiusPercent = 0
+                        explosion.ExplosionType = Enum.ExplosionType.NoCraters
+                        explosion.Visible = true
+                        explosion.Parent = workspace
+                        
+                        -- Destroy the dummy immediately
+                        model:Destroy()
+                    end
+                end
+            end)
+        end
+    end
 end
 
 -- Call the function to start checking for collisions
