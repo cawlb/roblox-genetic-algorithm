@@ -1,8 +1,17 @@
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
 local PhysicsService = game:GetService("PhysicsService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 print("Starting Genetic Algorithm Server...")
+
+-- Create a RemoteEvent for updating the scoreboard
+if not ReplicatedStorage:FindFirstChild("UpdateScoreboard") then
+    local updateScoreboard = Instance.new("RemoteEvent")
+    updateScoreboard.Name = "UpdateScoreboard"
+    updateScoreboard.Parent = ReplicatedStorage
+end
 
 -- Create collision group for dummies
 if not pcall(function() PhysicsService:GetCollisionGroupId("Dummies") end) then
@@ -21,6 +30,47 @@ local NUM_GENS = 25
 local GEN_TIME = 8 -- Changed from 20 to 8 seconds
 local MUTATION_RATE = 0.1 -- Increased from 0.05 to encourage more exploration
 local OBSTACLE_PENALTY = 500 -- Penalty for hitting an obstacle
+local NUM_BLOODLINES = 8 -- Number of distinct bloodlines to track
+
+-- Bloodline tracking
+local bloodlines = {}
+for i = 1, NUM_BLOODLINES do
+    bloodlines[i] = {
+        color = Color3.fromHSV((i-1)/NUM_BLOODLINES, 0.8, 0.9), -- Distinct colors
+        name = "Bloodline " .. i,
+        bestScore = math.huge,
+        currentScore = math.huge,
+        reachedGoal = false,
+        goalReachedGen = 0,
+        dummyCount = 0,
+        successRate = 0
+    }
+end
+
+-- Function to update the scoreboard
+local function updateScoreboard(generation)
+    -- Calculate success rates
+    for i, bloodline in ipairs(bloodlines) do
+        if bloodline.dummyCount > 0 then
+            -- Convert score to a percentage (lower is better, so invert)
+            local maxDistance = 113 -- Approximate max distance from start to goal
+            local normalizedScore = math.min(bloodline.currentScore, maxDistance) / maxDistance
+            bloodline.successRate = math.max(0, math.floor((1 - normalizedScore) * 100))
+        end
+    end
+    
+    -- Sort bloodlines by success rate (highest first)
+    table.sort(bloodlines, function(a, b)
+        return a.successRate > b.successRate
+    end)
+    
+    -- Send update to all clients
+    local scoreboardData = {
+        generation = generation,
+        bloodlines = bloodlines
+    }
+    ReplicatedStorage.UpdateScoreboard:FireAllClients(scoreboardData)
+end
 
 -- Setup workspace
 local function setupWorkspace()
@@ -270,19 +320,56 @@ end
 	Only leads to gray-blue-green colors because of the range
 	of numbers we are dealing with but its good enough 
 ]]
-local function colorDummy(dummy, genes)
-	local avg = 0
-	for _, num in genes do
-		avg += num
-	end
-	avg = math.abs(avg / #genes * 1000)
-	-- Convert to hex string, ensuring its 3 digits long 
-	local color = Color3.fromHex(string.format("%.3x", avg))
-	for _, part in dummy:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.Color = color
-		end
-	end
+local function colorDummy(dummy, genes, bloodlineIndex)
+    -- If bloodlineIndex is provided, use that bloodline's color
+    if bloodlineIndex then
+        local color = bloodlines[bloodlineIndex].color
+        for _, part in dummy:GetDescendants() do
+            if part:IsA("BasePart") then
+                part.Color = color
+            end
+        end
+        -- Store the bloodline index on the dummy
+        dummy:SetAttribute("BloodlineIndex", bloodlineIndex)
+        return
+    end
+    
+    -- Otherwise, calculate color from genes and assign to nearest bloodline
+    local avg = 0
+    for _, num in genes do
+        avg += num
+    end
+    avg = math.abs(avg / #genes * 1000)
+    
+    -- Convert to a color
+    local color = Color3.fromHex(string.format("%.3x", avg))
+    
+    -- Find the closest bloodline color
+    local closestIndex = 1
+    local closestDistance = (bloodlines[1].color - color).Magnitude
+    
+    for i = 2, #bloodlines do
+        local distance = (bloodlines[i].color - color).Magnitude
+        if distance < closestDistance then
+            closestDistance = distance
+            closestIndex = i
+        end
+    end
+    
+    -- Use the bloodline color instead of the calculated one
+    color = bloodlines[closestIndex].color
+    
+    for _, part in dummy:GetDescendants() do
+        if part:IsA("BasePart") then
+            part.Color = color
+        end
+    end
+    
+    -- Store the bloodline index on the dummy
+    dummy:SetAttribute("BloodlineIndex", closestIndex)
+    
+    -- Increment the dummy count for this bloodline
+    bloodlines[closestIndex].dummyCount += 1
 end
 
 --[[
@@ -417,6 +504,8 @@ end
 	Also provides visual feedback when a dummy reaches the goal.
 ]]
 local function calcFitness(dummy, wasDestroyed)
+    local bloodlineIndex = dummy:GetAttribute("BloodlineIndex") or 1
+    
 	-- If the dummy hit an obstacle, apply a penalty but still consider its progress
 	if wasDestroyed then
 		-- Get the best position the dummy reached before being destroyed
@@ -432,15 +521,26 @@ local function calcFitness(dummy, wasDestroyed)
 			local progressMade = initialDistance - bestDistance
 			
 			-- Apply obstacle penalty but give credit for progress made
+			local score = 0
 			if progressMade > 0 then
 				-- The dummy made some progress, so penalize less
-				return OBSTACLE_PENALTY - progressMade
+				score = OBSTACLE_PENALTY - progressMade
 			else
 				-- The dummy didn't make progress, full penalty
-				return OBSTACLE_PENALTY
+				score = OBSTACLE_PENALTY
 			end
+            
+            -- Update bloodline score if this is better
+            if score < bloodlines[bloodlineIndex].currentScore then
+                bloodlines[bloodlineIndex].currentScore = score
+            end
+            
+			return score
 		else
 			-- No best position recorded, apply full penalty
+            if OBSTACLE_PENALTY < bloodlines[bloodlineIndex].currentScore then
+                bloodlines[bloodlineIndex].currentScore = OBSTACLE_PENALTY
+            end
 			return OBSTACLE_PENALTY
 		end
 	end
@@ -469,6 +569,14 @@ local function calcFitness(dummy, wasDestroyed)
 		end
 		
 		print("Dummy reached the goal! Distance: " .. distance)
+        print("Bloodline " .. bloodlineIndex .. " reached the goal!")
+        
+        -- Update bloodline information
+        bloodlines[bloodlineIndex].reachedGoal = true
+        bloodlines[bloodlineIndex].currentScore = distance * 0.1
+        if bloodlines[bloodlineIndex].bestScore > distance * 0.1 then
+            bloodlines[bloodlineIndex].bestScore = distance * 0.1
+        end
 		
 		-- Give a significant fitness bonus for reaching the goal
 		-- Return a very low score (good fitness) with a small component based on actual distance
@@ -477,6 +585,11 @@ local function calcFitness(dummy, wasDestroyed)
 	end
 	
 	-- For dummies that don't reach the goal, return their distance
+    -- Update bloodline score if this is better
+    if distance < bloodlines[bloodlineIndex].currentScore then
+        bloodlines[bloodlineIndex].currentScore = distance
+    end
+    
 	return distance
 end
 
@@ -532,6 +645,12 @@ local function simulateEvolution()
 		
 		-- Clear the obstacle hit tracking for this generation
 		dummiesHitObstacle = {}
+        
+        -- Reset bloodline stats for this generation
+        for i = 1, #bloodlines do
+            bloodlines[i].currentScore = math.huge
+            bloodlines[i].dummyCount = 0
+        end
 		
 		-- Start by creating the population for this generation 
 		local dummies = {}
@@ -551,11 +670,17 @@ local function simulateEvolution()
 			if d and d.Parent then
 				-- Dummy survived the generation
 				local fitnessScore = calcFitness(d, false)
-				scores[i] = {fitnessScore, genes[i]}
+				scores[i] = {fitnessScore, genes[i], d:GetAttribute("BloodlineIndex") or 1}
 				
 				-- Check if this dummy reached the goal (score will be very low if it did)
 				if fitnessScore < 5 then
 					reachedGoalCount += 1
+                    
+                    -- Record which generation this bloodline first reached the goal
+                    local bloodlineIndex = d:GetAttribute("BloodlineIndex") or 1
+                    if bloodlines[bloodlineIndex].goalReachedGen == 0 then
+                        bloodlines[bloodlineIndex].goalReachedGen = gen
+                    end
 				end
 				
 				-- Destroy all dummies immediately after scoring
@@ -566,7 +691,8 @@ local function simulateEvolution()
 				
 				-- Calculate a fitness score that considers how far it got before being destroyed
 				local fitnessScore = calcFitness(dummies[i], true)
-				scores[i] = {fitnessScore, genes[i]}
+                local bloodlineIndex = dummies[i]:GetAttribute("BloodlineIndex") or 1
+				scores[i] = {fitnessScore, genes[i], bloodlineIndex}
 			end
 		end
 
@@ -595,7 +721,7 @@ local function simulateEvolution()
 		print("-------------------------------------------------------")
 		print("TOP 5 SCORES THIS GENERATION:")
 		for i = 1, math.min(5, #scores) do
-			print("  #" .. i .. ": " .. string.format("%.2f", scores[i][1]))
+			print("  #" .. i .. ": " .. string.format("%.2f", scores[i][1]) .. " (Bloodline " .. scores[i][3] .. ")")
 		end
 		
 		-- Calculate average score
@@ -612,6 +738,14 @@ local function simulateEvolution()
 		print("AVERAGE SCORE: " .. string.format("%.2f", average))
 		print("DUMMIES THAT REACHED GOAL: " .. reachedGoalCount)
 		print("DUMMIES KILLED BY OBSTACLES: " .. killedByObstacleCount)
+        print("-------------------------------------------------------")
+        print("BLOODLINE PERFORMANCE:")
+        for i, bloodline in ipairs(bloodlines) do
+            if bloodline.dummyCount > 0 then
+                local status = bloodline.reachedGoal and "REACHED GOAL" or "IN PROGRESS"
+                print("  Bloodline " .. i .. ": " .. string.format("%.2f", bloodline.currentScore) .. " - " .. status)
+            end
+        end
 		print("=======================================================")
 		
 		if goalReached then
@@ -623,15 +757,28 @@ local function simulateEvolution()
 		-- the population better able to survive
 		-- (this is the reason we need num_dummies to be divisble by 4, it keeps gene count good)
 		table.clear(genes)
+        
+        -- Track which bloodlines are being used for reproduction
+        local bloodlineOffspring = {}
+        for i = 1, #bloodlines do
+            bloodlineOffspring[i] = 0
+        end
+        
 		for i = 1, NUM_DUMMIES / 2 - 1, 2 do
 			if scores[i] and scores[i+1] then
 				local g1 = scores[i][2]
 				local g2 = scores[i + 1][2]
+                local b1 = scores[i][3]
+                local b2 = scores[i+1][3]
 				local c1, c2 = crossover(g1, g2)
 				table.insert(genes, c1)
 				table.insert(genes, c2)
 				table.insert(genes, g1)
 				table.insert(genes, g2)
+                
+                -- Track which bloodlines are reproducing
+                bloodlineOffspring[b1] = bloodlineOffspring[b1] + 2
+                bloodlineOffspring[b2] = bloodlineOffspring[b2] + 2
 			end
 		end
 		
@@ -653,6 +800,9 @@ local function simulateEvolution()
 				obj:Destroy()
 			end
 		end
+        
+        -- Update the scoreboard
+        updateScoreboard(gen)
 	end
 	
 	print("\n\n*******************************************************")
@@ -661,10 +811,20 @@ local function simulateEvolution()
 	if goalReached then
 		print("SUCCESS: Dummies successfully evolved to reach the goal!")
 		print("Final best fitness score: " .. string.format("%.2f", bestScore))
+        
+        -- Print final bloodline stats
+        print("\nBLOODLINE FINAL RESULTS:")
+        for i, bloodline in ipairs(bloodlines) do
+            local status = bloodline.reachedGoal and "REACHED GOAL (Gen " .. bloodline.goalReachedGen .. ")" or "FAILED"
+            print("  Bloodline " .. i .. ": Best Score " .. string.format("%.2f", bloodline.bestScore) .. " - " .. status)
+        end
 	else
 		print("The simulation ended without any dummies reaching the goal.")
 		print("Best fitness score achieved: " .. string.format("%.2f", bestScore))
 	end
+    
+    -- Final scoreboard update
+    updateScoreboard(NUM_GENS)
 end
 
 -- Start the simulation
