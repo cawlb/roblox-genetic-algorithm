@@ -97,8 +97,74 @@ local function setupWorkspace()
             obstacle.Position = pos
             obstacle.Anchored = true
             obstacle.Material = Enum.Material.Concrete
-            obstacle.Color = Color3.fromRGB(120, 120, 120)
+            obstacle.Color = Color3.fromRGB(255, 0, 0) -- Make them red to indicate danger
             obstacle.Parent = obstacles
+            
+            -- Add a TouchTransmitter to detect collisions
+            local touchPart = Instance.new("Part")
+            touchPart.Name = "KillTrigger"
+            touchPart.Size = obstacle.Size + Vector3.new(0.5, 0.5, 0.5) -- Slightly larger than the obstacle
+            touchPart.Position = pos
+            touchPart.Anchored = true
+            touchPart.CanCollide = false
+            touchPart.Transparency = 1 -- Invisible
+            touchPart.Parent = obstacle
+            
+            -- Add a script to handle killing dummies that touch the obstacle
+            local touchScript = Instance.new("Script")
+            touchScript.Name = "KillScript"
+            touchScript.Source = [[
+                local part = script.Parent
+                
+                local function onTouch(otherPart)
+                    local character = otherPart.Parent
+                    if character:FindFirstChildOfClass("Humanoid") then
+                        -- This is a character, destroy it
+                        print("Dummy hit an obstacle and was destroyed!")
+                        character:Destroy()
+                    end
+                end
+                
+                part.Touched:Connect(onTouch)
+            ]]
+            touchScript.Parent = touchPart
+        end
+    else
+        -- Update existing obstacles to be kill blocks if they aren't already
+        for _, obstacle in pairs(obstacles:GetChildren()) do
+            if obstacle:IsA("BasePart") then
+                obstacle.Color = Color3.fromRGB(255, 0, 0) -- Make them red
+                
+                -- Add kill trigger if it doesn't exist
+                if not obstacle:FindFirstChild("KillTrigger") then
+                    local touchPart = Instance.new("Part")
+                    touchPart.Name = "KillTrigger"
+                    touchPart.Size = obstacle.Size + Vector3.new(0.5, 0.5, 0.5)
+                    touchPart.Position = obstacle.Position
+                    touchPart.Anchored = true
+                    touchPart.CanCollide = false
+                    touchPart.Transparency = 1
+                    touchPart.Parent = obstacle
+                    
+                    local touchScript = Instance.new("Script")
+                    touchScript.Name = "KillScript"
+                    touchScript.Source = [[
+                        local part = script.Parent
+                        
+                        local function onTouch(otherPart)
+                            local character = otherPart.Parent
+                            if character:FindFirstChildOfClass("Humanoid") then
+                                -- This is a character, destroy it
+                                print("Dummy hit an obstacle and was destroyed!")
+                                character:Destroy()
+                            end
+                        end
+                        
+                        part.Touched:Connect(onTouch)
+                    ]]
+                    touchScript.Parent = touchPart
+                end
+            end
         end
     end
     
@@ -400,10 +466,13 @@ local function simulateEvolution()
 		end
 		print("Created " .. #dummies .. " dummies for generation " .. gen)
 		print("Simulating for " .. GEN_TIME .. " seconds...")
+		print("CHALLENGE MODE: Red obstacles will destroy dummies on contact!")
 		task.wait(GEN_TIME)
 
 		local scores = {}
 		local reachedGoalCount = 0
+		local killedByObstacleCount = 0
+		
 		for i, d in pairs(dummies) do
 			if d and d.Parent then
 				local fitnessScore = calcFitness(d)
@@ -417,8 +486,10 @@ local function simulateEvolution()
 				-- Destroy all dummies immediately after scoring
 				d:Destroy()
 			else
-				-- If dummy was destroyed, give it a bad score
-				scores[i] = {1000, genes[i]}
+				-- If dummy was destroyed during simulation (likely by an obstacle)
+				killedByObstacleCount += 1
+				-- Give it a bad score, but not as bad as ones that never spawned
+				scores[i] = {800, genes[i]}
 			end
 		end
 
@@ -454,7 +525,7 @@ local function simulateEvolution()
 		local sum = 0
 		local count = 0
 		for _, score in ipairs(scores) do
-			if score[1] < 1000 then -- Only count valid scores
+			if score[1] < 800 then -- Only count valid scores (not killed by obstacles)
 				sum += score[1]
 				count += 1
 			end
@@ -463,6 +534,7 @@ local function simulateEvolution()
 		print("-------------------------------------------------------")
 		print("AVERAGE SCORE: " .. string.format("%.2f", average))
 		print("DUMMIES THAT REACHED GOAL: " .. reachedGoalCount)
+		print("DUMMIES KILLED BY OBSTACLES: " .. killedByObstacleCount)
 		print("=======================================================")
 		
 		if goalReached then
