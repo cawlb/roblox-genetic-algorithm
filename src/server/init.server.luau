@@ -99,17 +99,18 @@ local function setupWorkspace()
         local dummy = Instance.new("Model")
         dummy.Name = "Dummy"
         
-        local humanoid = Instance.new("Humanoid")
-        humanoid.Parent = dummy
-        
+        -- Create the HumanoidRootPart first
         local torso = Instance.new("Part")
         torso.Name = "HumanoidRootPart"
         torso.Size = Vector3.new(2, 2, 1)
         torso.Position = Vector3.new(0, 3, 0)
         torso.Parent = dummy
         
-        humanoid.RootPart = torso
+        -- Then create the humanoid
+        local humanoid = Instance.new("Humanoid")
+        humanoid.Parent = dummy
         
+        -- Create a head
         local head = Instance.new("Part")
         head.Name = "Head"
         head.Size = Vector3.new(1, 1, 1)
@@ -122,7 +123,11 @@ local function setupWorkspace()
         weld.Part1 = head
         weld.Parent = torso
         
+        -- Set the primary part
+        dummy.PrimaryPart = torso
+        
         dummy.Parent = ServerStorage
+        print("Created dummy template")
     end
 end
 
@@ -223,8 +228,24 @@ end
 local function simulateDummy(genes)
 	local dummy = ServerStorage.Dummy:Clone()
 	dummy.Parent = workspace
+	
+	-- Position the dummy at the start position
 	dummy:PivotTo(workspace.Start.CFrame + Vector3.new(0, 3, 0))
+	
+	-- Color the dummy based on genes
 	colorDummy(dummy, genes)
+	
+	-- Get the humanoid
+	local humanoid = dummy:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		print("No humanoid found in dummy, creating one")
+		humanoid = Instance.new("Humanoid")
+		humanoid.Parent = dummy
+	end
+	
+	-- Set humanoid properties
+	humanoid.WalkSpeed = 16
+	humanoid.JumpPower = 50
 	
 	local connection
 	connection = RunService.Stepped:Connect(function()
@@ -234,19 +255,28 @@ local function simulateDummy(genes)
 			return 
 		end
 		
-		local weights = getWeights(dummy:GetPivot().Position, genes)
+		-- Get the dummy's position
+		local dummyPos = dummy:GetPivot().Position
+		
+		-- Calculate weights and actions
+		local weights = getWeights(dummyPos, genes)
 		local shouldMove, shouldJump = getActions(weights)
 		
 		-- Calculate direction towards goal
-		local dummyPos = dummy:GetPivot().Position
 		local goalDir = (workspace.Goal.Position - dummyPos).Unit
 		goalDir = Vector3.new(goalDir.X, 0, goalDir.Z).Unit -- Flatten to XZ plane
 		
-		-- Humanoid can only move at a constant speed in our simulation 
-		dummy.Humanoid:Move(goalDir * (shouldMove and 1 or 0))
-		-- Weirdly enough, in order to make a humanoid jump you just set Jump = True
-		dummy.Humanoid.Jump = shouldJump
+		-- Move the dummy
+		if shouldMove then
+			humanoid:Move(goalDir)
+		else
+			humanoid:Move(Vector3.new(0, 0, 0))
+		end
+		
+		-- Make the dummy jump
+		humanoid.Jump = shouldJump
 	end)
+	
 	return dummy
 end
 
@@ -307,14 +337,21 @@ local function simulateEvolution()
 		-- Start by creating the population for this generation 
 		local dummies = {}
 		for i = 1, NUM_DUMMIES do
+			print("Creating dummy " .. i)
 			dummies[i] = simulateDummy(genes[i])
 		end
+		print("Created " .. #dummies .. " dummies for generation " .. gen)
 		task.wait(GEN_TIME)
 
 		local scores = {}
-		for i, d in dummies do
-			scores[i] = {calcFitness(d), genes[i]}
-			d:Destroy()
+		for i, d in pairs(dummies) do
+			if d and d.Parent then
+				scores[i] = {calcFitness(d), genes[i]}
+				d:Destroy()
+			else
+				-- If dummy was destroyed, give it a bad score
+				scores[i] = {1000, genes[i]}
+			end
 		end
 
 		-- Sort scores in ascending order, since good scores are low 
@@ -322,7 +359,7 @@ local function simulateEvolution()
 			return a[1] < b[1]
 		end)
 		-- Update all time best score 
-		if scores[1][1] < bestScore then
+		if scores[1] and scores[1][1] < bestScore then
 			bestScore = scores[1][1]
 		end
 
@@ -332,16 +369,24 @@ local function simulateEvolution()
 		-- (this is the reason we need num_dummies to be divisble by 4, it keeps gene count good)
 		table.clear(genes)
 		for i = 1, NUM_DUMMIES / 2 - 1, 2 do
-			local g1 = scores[i][2]
-			local g2 = scores[i + 1][2]
-			local c1, c2 = crossover(g1, g2)
-			table.insert(genes, c1)
-			table.insert(genes, c2)
-			table.insert(genes, g1)
-			table.insert(genes, g2)
+			if scores[i] and scores[i+1] then
+				local g1 = scores[i][2]
+				local g2 = scores[i + 1][2]
+				local c1, c2 = crossover(g1, g2)
+				table.insert(genes, c1)
+				table.insert(genes, c2)
+				table.insert(genes, g1)
+				table.insert(genes, g2)
+			end
 		end
+		
+		-- If we don't have enough genes, fill with random ones
+		while #genes < NUM_DUMMIES do
+			table.insert(genes, makeRandomGenome())
+		end
+		
 		-- Small chance that a gene will mutate 
-		for _, gene in genes do
+		for _, gene in pairs(genes) do
 			if rand:NextNumber() < MUTATION_RATE then
 				pointMutate(gene)
 			end
@@ -352,5 +397,6 @@ local function simulateEvolution()
 end
 
 -- Start the simulation
+print("Waiting 2 seconds before starting simulation...")
 task.wait(2) -- Wait a bit for the game to fully load
 simulateEvolution()
