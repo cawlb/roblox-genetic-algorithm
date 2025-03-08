@@ -24,6 +24,7 @@ local DEFAULT_CONFIG = {
 
 -- Create a new simulation manager
 function SimulationManager.new(config)
+    print("Creating new SimulationManager instance")
     local self = setmetatable({}, SimulationManager)
     
     -- Apply default config and override with provided config
@@ -45,6 +46,7 @@ function SimulationManager.new(config)
         dummyUpdated = Instance.new("BindableEvent")
     }
     
+    print("SimulationManager instance created")
     return self
 end
 
@@ -64,16 +66,26 @@ function SimulationManager:initialize(platformsFolder, dummyTemplate, startPosit
     -- Set up raycast filter
     self.castParams.FilterDescendantsInstances = {platformsFolder}
     
+    print("SimulationManager initialization complete")
     return self
 end
 
 -- Simulate a single dummy with the given genes
 function SimulationManager:simulateDummy(genes)
+    print("simulateDummy called with genes length: " .. (genes and #genes or "nil"))
+    
     if not self.config.dummyTemplate then
         warn("Dummy template is nil!")
         return nil
     end
     
+    -- Check if genes are valid
+    if not genes or #genes < GeneticAlgorithm.NUM_RAYS * 2 then
+        print("Creating default genes because provided genes are invalid")
+        genes = GeneticAlgorithm.makeRandomGenome()
+    end
+    
+    print("Cloning dummy template")
     local dummy = self.config.dummyTemplate:Clone()
     if not dummy then
         warn("Failed to clone dummy template!")
@@ -83,7 +95,7 @@ function SimulationManager:simulateDummy(genes)
     -- Ensure the dummy has a humanoid
     local humanoid = dummy:FindFirstChildOfClass("Humanoid")
     if not humanoid then
-        warn("Dummy has no humanoid!")
+        warn("Dummy has no humanoid! Creating one...")
         humanoid = Instance.new("Humanoid")
         humanoid.Parent = dummy
     end
@@ -91,7 +103,7 @@ function SimulationManager:simulateDummy(genes)
     -- Ensure the dummy has a HumanoidRootPart
     local rootPart = dummy:FindFirstChild("HumanoidRootPart")
     if not rootPart then
-        warn("Dummy has no HumanoidRootPart!")
+        warn("Dummy has no HumanoidRootPart! Creating one...")
         rootPart = Instance.new("Part")
         rootPart.Name = "HumanoidRootPart"
         rootPart.Size = Vector3.new(2, 2, 1)
@@ -105,6 +117,7 @@ function SimulationManager:simulateDummy(genes)
     humanoid.JumpHeight = 7.2
     
     -- Parent the dummy to workspace
+    print("Parenting dummy to workspace")
     dummy.Parent = workspace
     
     -- Position the dummy at the start
@@ -117,12 +130,14 @@ function SimulationManager:simulateDummy(genes)
     end
     
     -- Color the dummy based on genes
+    print("Coloring dummy based on genes")
     GeneticAlgorithm.colorDummy(dummy, genes)
     
     -- Store the dummy in active simulations
     table.insert(self.config.activeSimulations, dummy)
     
     -- Set up the dummy's behavior
+    print("Setting up dummy behavior")
     local connection
     connection = RunService.Stepped:Connect(function()
         if not dummy or not dummy.Parent then
@@ -177,13 +192,18 @@ function SimulationManager:simulateDummy(genes)
         self.events.dummyUpdated:Fire(dummy, weights)
     end)
     
+    print("Dummy created and behavior set up successfully")
     return dummy
 end
 
 -- Run a complete simulation with multiple generations
 function SimulationManager:runSimulation()
+    print("runSimulation called")
+    
     if self.config.isRunning then
-        return false, "Simulation is already running"
+        self.lastError = "Simulation is already running"
+        warn(self.lastError)
+        return false, self.lastError
     end
     
     print("Starting simulation with " .. self.config.numDummies .. " dummies for " .. self.config.numGenerations .. " generations")
@@ -193,13 +213,16 @@ function SimulationManager:runSimulation()
     self.config.bestScore = math.huge
     
     -- Initialize genes for the first generation
+    print("Initializing genes for first generation")
     local genes = {}
     for i = 1, self.config.numDummies do
         table.insert(genes, GeneticAlgorithm.makeRandomGenome())
     end
     
     -- Run the simulation asynchronously
+    print("Spawning simulation task")
     task.spawn(function()
+        print("Simulation task started")
         for gen = 1, self.config.numGenerations do
             if not self.config.isRunning then 
                 print("Simulation stopped early")
@@ -210,11 +233,16 @@ function SimulationManager:runSimulation()
             print(string.format("Generation %i; Best Fitness Score: %f", gen, self.config.bestScore))
             
             -- Create dummies for this generation
+            print("Creating dummies for generation " .. gen)
             local dummies = {}
             for i = 1, self.config.numDummies do
+                print("Creating dummy " .. i .. " of " .. self.config.numDummies)
                 local dummy = self:simulateDummy(genes[i])
                 if dummy then
                     dummies[i] = dummy
+                    print("Dummy " .. i .. " created successfully")
+                else
+                    warn("Failed to create dummy " .. i)
                 end
             end
             
@@ -223,6 +251,7 @@ function SimulationManager:runSimulation()
             task.wait(self.config.generationTime)
             
             -- Calculate fitness scores
+            print("Calculating fitness scores")
             local scores = {}
             for i, d in pairs(dummies) do
                 if d and d.Parent then
@@ -248,9 +277,11 @@ function SimulationManager:runSimulation()
             -- Update best score
             if scores[1] and scores[1][1] < self.config.bestScore then
                 self.config.bestScore = scores[1][1]
+                print("New best score: " .. self.config.bestScore)
             end
             
             -- Create the next generation through selection, crossover, and mutation
+            print("Creating next generation")
             table.clear(genes)
             for i = 1, self.config.numDummies / 2 - 1, 2 do
                 if scores[i] and scores[i+1] then
@@ -270,6 +301,7 @@ function SimulationManager:runSimulation()
             end
             
             -- Apply mutations
+            print("Applying mutations")
             for _, gene in pairs(genes) do
                 if Random.new():NextNumber() < GeneticAlgorithm.MUTATION_RATE then
                     GeneticAlgorithm.pointMutate(gene)
@@ -277,6 +309,7 @@ function SimulationManager:runSimulation()
             end
             
             -- Fire generation completed event
+            print("Generation " .. gen .. " completed")
             self.events.generationCompleted:Fire(gen, self.config.bestScore, scores[1] and scores[1][2] or nil)
         end
         
@@ -286,18 +319,24 @@ function SimulationManager:runSimulation()
         print("Simulation completed with best score: " .. self.config.bestScore)
     end)
     
+    print("Simulation started successfully")
     return true
 end
 
 -- Stop the current simulation
 function SimulationManager:stopSimulation()
+    print("stopSimulation called")
+    
     if not self.config.isRunning then
-        return false, "No simulation is running"
+        self.lastError = "No simulation is running"
+        warn(self.lastError)
+        return false, self.lastError
     end
     
     self.config.isRunning = false
     
     -- Clean up any active dummies
+    print("Cleaning up active dummies: " .. #self.config.activeSimulations)
     for _, dummy in pairs(self.config.activeSimulations) do
         if dummy and dummy.Parent then
             dummy:Destroy()
@@ -306,6 +345,7 @@ function SimulationManager:stopSimulation()
     
     table.clear(self.config.activeSimulations)
     
+    print("Simulation stopped successfully")
     return true
 end
 
@@ -322,16 +362,25 @@ end
 
 -- Update simulation parameters
 function SimulationManager:updateConfig(newConfig)
+    print("updateConfig called with:")
+    for key, value in pairs(newConfig) do
+        print("  - " .. key .. ": " .. tostring(value))
+    end
+    
     if self.config.isRunning then
-        return false, "Cannot update config while simulation is running"
+        self.lastError = "Cannot update config while simulation is running"
+        warn(self.lastError)
+        return false, self.lastError
     end
     
     for key, value in pairs(newConfig) do
         if self.config[key] ~= nil then
             self.config[key] = value
+            print("Updated config " .. key .. " to " .. tostring(value))
         end
     end
     
+    print("Configuration updated successfully")
     return true
 end
 

@@ -184,11 +184,13 @@ local function setupWorkspace()
 end
 
 -- Set up the workspace with required objects
+print("Calling setupWorkspace function...")
 local workspaceSetupSuccess, workspaceSetupError = pcall(setupWorkspace)
 if not workspaceSetupSuccess then
     warn("Failed to set up workspace: " .. tostring(workspaceSetupError))
     return
 end
+print("Workspace setup completed successfully")
 
 -- Create a simulation manager instance
 print("Creating simulation manager")
@@ -213,12 +215,14 @@ local managerSuccess, managerError = pcall(function()
         error("Goal position not found in workspace")
     end
     
+    print("Initializing simulation manager with workspace objects")
     simulationManager:initialize(
         workspace.Platforms,
         ServerStorage.Dummy,
         workspace.Start,
         workspace.Goal
     )
+    print("Simulation manager initialized successfully")
 end)
 
 if not managerSuccess then
@@ -227,6 +231,7 @@ if not managerSuccess then
 end
 
 -- Connect simulation events to remote events
+print("Connecting simulation events to remote events")
 simulationManager.events.generationCompleted.Event:Connect(function(generation, bestScore, bestGenes)
     print("Generation " .. generation .. " completed. Best score: " .. bestScore)
     remoteEvents.generationCompleted:FireAllClients(generation, bestScore, bestGenes)
@@ -245,16 +250,31 @@ end)
 -- Handle remote events
 remoteEvents.startSimulation.OnServerEvent:Connect(function(player)
     print("Start simulation requested by " .. player.Name)
-    local success, errorMsg = pcall(function()
+    
+    -- Debug the current state
+    print("Current simulation status before starting:")
+    local currentStatus = simulationManager:getStatus()
+    for key, value in pairs(currentStatus) do
+        print("  - " .. key .. ": " .. tostring(value))
+    end
+    
+    local success, result = pcall(function()
         return simulationManager:runSimulation()
     end)
     
     if not success then
-        warn("Error starting simulation: " .. tostring(errorMsg))
-    elseif errorMsg == false then
+        warn("Error starting simulation: " .. tostring(result))
+    elseif result == false then
         warn("Simulation could not be started: " .. (simulationManager.lastError or "Unknown error"))
     else
         print("Simulation started successfully")
+        
+        -- Create a test dummy to verify the dummy creation works
+        print("Creating test dummy...")
+        local testDummy = ServerStorage.Dummy:Clone()
+        testDummy.Parent = workspace
+        testDummy:PivotTo(workspace.Start.CFrame + Vector3.new(0, 3, 0))
+        print("Test dummy created at " .. tostring(testDummy:GetPivot().Position))
     end
 end)
 
@@ -275,6 +295,11 @@ end)
 
 remoteEvents.updateConfig.OnServerEvent:Connect(function(player, newConfig)
     print("Config update requested by " .. player.Name)
+    print("New config values:")
+    for key, value in pairs(newConfig) do
+        print("  - " .. key .. ": " .. tostring(value))
+    end
+    
     local success, errorMsg = pcall(function()
         return simulationManager:updateConfig(newConfig)
     end)
@@ -321,3 +346,29 @@ print("Goal: " .. (workspace:FindFirstChild("Goal") and "✓" or "✗"))
 print("Obstacles: " .. (workspace:FindFirstChild("Platforms") and workspace.Platforms:FindFirstChild("Obstacles") and #workspace.Platforms.Obstacles:GetChildren() > 0 and "✓ (" .. #workspace.Platforms.Obstacles:GetChildren() .. " obstacles)" or "✗"))
 print("Dummy Template: " .. (ServerStorage:FindFirstChild("Dummy") and "✓" or "✗"))
 print("=========================")
+
+-- Test the simulation manager's simulateDummy function
+print("Testing simulateDummy function...")
+task.spawn(function()
+    task.wait(2) -- Wait a bit to make sure everything is initialized
+    
+    if simulationManager and simulationManager.simulateDummy then
+        print("Attempting to create a test dummy with simulateDummy...")
+        local testGenes = {}
+        for i = 1, 10 do
+            table.insert(testGenes, math.random(-1, 1))
+        end
+        
+        local success, result = pcall(function()
+            return simulationManager:simulateDummy(testGenes)
+        end)
+        
+        if success and result then
+            print("Test dummy created successfully with simulateDummy")
+        else
+            warn("Failed to create test dummy with simulateDummy: " .. tostring(result))
+        end
+    else
+        warn("simulationManager or simulateDummy function not available")
+    end
+end)

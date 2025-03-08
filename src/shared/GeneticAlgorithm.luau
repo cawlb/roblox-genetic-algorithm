@@ -1,5 +1,7 @@
 local GeneticAlgorithm = {}
 
+print("Loading GeneticAlgorithm module...")
+
 -- Constants that can be configured
 GeneticAlgorithm.NUM_RAYS = 5
 GeneticAlgorithm.MAX_RAY_ANGLE = math.pi / 3 -- Radians, this is 60 degrees  
@@ -14,6 +16,22 @@ local rand = Random.new()
 ]]
 function GeneticAlgorithm.getWeights(pos, genes, castParams)
 	local weights = {}
+	
+	-- Validate inputs
+	if not pos then
+		warn("getWeights: position is nil")
+		return weights
+	end
+	
+	if not genes or #genes < GeneticAlgorithm.NUM_RAYS * 2 then
+		warn("getWeights: genes are invalid, length: " .. (genes and #genes or "nil"))
+		return weights
+	end
+	
+	if not castParams then
+		warn("getWeights: castParams is nil")
+		return weights
+	end
 	
 	-- Create a new cf pointing downwards
 	local refCF = CFrame.fromMatrix(pos, Vector3.xAxis, -Vector3.zAxis)
@@ -37,6 +55,11 @@ end
 	Determines whether or not the dummy should move or jump based on cumulative values of the ray weights
 ]]
 function GeneticAlgorithm.getActions(weights)
+	if not weights or #weights == 0 then
+		warn("getActions: weights are invalid")
+		return false, false
+	end
+	
 	local moveSum = 0
 	local jumpSum = 0 
 	for i, w in weights do
@@ -59,11 +82,13 @@ end
 	traits. 
 ]]
 function GeneticAlgorithm.makeRandomGenome()
+	print("Creating random genome")
 	local genes = {}
 	-- Each ray has two values: one for jump, one for move, so our genome is 2 times rays  
 	for i = 1, GeneticAlgorithm.NUM_RAYS * 2 do
 		table.insert(genes, rand:NextNumber(-1, 1))
 	end
+	print("Created random genome with " .. #genes .. " genes")
 	return genes
 end
 
@@ -73,6 +98,16 @@ end
 	of numbers we are dealing with but its good enough 
 ]]
 function GeneticAlgorithm.colorDummy(dummy, genes)
+	if not dummy then
+		warn("colorDummy: dummy is nil")
+		return
+	end
+	
+	if not genes or #genes == 0 then
+		warn("colorDummy: genes are invalid")
+		return
+	end
+	
 	local avg = 0
 	for _, num in genes do
 		avg += num
@@ -93,6 +128,16 @@ end
 	This is used to find who survived the best, and give them reproduction priority. 
 ]]
 function GeneticAlgorithm.calcFitness(dummy, goal)
+	if not dummy then
+		warn("calcFitness: dummy is nil")
+		return 1000
+	end
+	
+	if not goal then
+		warn("calcFitness: goal is nil")
+		return 1000
+	end
+	
 	return (dummy:GetPivot().Position * Vector3.new(1, 0, 1) - goal.Position * Vector3.new(1, 0, 1)).Magnitude
 end
 
@@ -105,6 +150,11 @@ end
 	take the best traits from their parents 
 ]]
 function GeneticAlgorithm.crossover(gene1, gene2)
+	if not gene1 or not gene2 or #gene1 == 0 or #gene2 == 0 then
+		warn("crossover: genes are invalid")
+		return GeneticAlgorithm.makeRandomGenome(), GeneticAlgorithm.makeRandomGenome()
+	end
+	
 	-- pick a random index
 	local crossoverPt = rand:NextInteger(1, #gene1)
 	-- We have to use two moves: one for the first slice, one for the second
@@ -123,9 +173,15 @@ end
 	runs stale on a bad solution or the environment changes. 
 ]]
 function GeneticAlgorithm.pointMutate(gene)
+	if not gene or #gene == 0 then
+		warn("pointMutate: gene is invalid")
+		return GeneticAlgorithm.makeRandomGenome()
+	end
+	
 	local idx = rand:NextInteger(1, GeneticAlgorithm.NUM_RAYS * 2)
 	gene[idx] = rand:NextNumber(-1, 1)
 	return gene
 end
 
+print("GeneticAlgorithm module loaded")
 return GeneticAlgorithm 
