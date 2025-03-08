@@ -306,9 +306,41 @@ end
 	Calculates the distance between dummy and goal, lower scores are better.
 	
 	This is used to find who survived the best, and give them reproduction priority. 
+	Also provides visual feedback when a dummy reaches the goal.
 ]]
 local function calcFitness(dummy)
-	return (dummy:GetPivot().Position * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+	local distance = (dummy:GetPivot().Position * Vector3.new(1, 0, 1) - workspace.Goal.Position * Vector3.new(1, 0, 1)).Magnitude
+	
+	-- Check if the dummy has reached the goal (within 5 studs)
+	if distance < 5 then
+		-- Visual feedback - make the dummy glow and change color when it reaches the goal
+		for _, part in pairs(dummy:GetDescendants()) do
+			if part:IsA("BasePart") then
+				-- Make the part glow green
+				part.Color = Color3.fromRGB(0, 255, 0)
+				
+				-- Add a highlight effect if it doesn't exist
+				if not part:FindFirstChild("ReachedGoalEffect") then
+					local highlight = Instance.new("Highlight")
+					highlight.Name = "ReachedGoalEffect"
+					highlight.FillColor = Color3.fromRGB(0, 255, 0)
+					highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+					highlight.FillTransparency = 0.5
+					highlight.Parent = part
+				end
+			end
+		end
+		
+		print("Dummy reached the goal! Distance: " .. distance)
+		
+		-- Give a significant fitness bonus for reaching the goal
+		-- Return a very low score (good fitness) with a small component based on actual distance
+		-- This ensures dummies that reach the goal are always ranked higher than those that don't
+		return distance * 0.1  -- Much better score than any dummy that doesn't reach the goal
+	end
+	
+	-- For dummies that don't reach the goal, return their distance
+	return distance
 end
 
 --[[
@@ -354,6 +386,7 @@ local function simulateEvolution()
 	
 	-- Run through every generation 
 	local bestScore = math.huge
+	local goalReached = false
 	for gen = 1, NUM_GENS do
 		print(string.format("Generation %i; Best Fitness Score: %f", gen, bestScore))
 		-- Start by creating the population for this generation 
@@ -366,10 +399,27 @@ local function simulateEvolution()
 		task.wait(GEN_TIME)
 
 		local scores = {}
+		local reachedGoalCount = 0
 		for i, d in pairs(dummies) do
 			if d and d.Parent then
-				scores[i] = {calcFitness(d), genes[i]}
-				d:Destroy()
+				local fitnessScore = calcFitness(d)
+				scores[i] = {fitnessScore, genes[i]}
+				
+				-- Check if this dummy reached the goal (score will be very low if it did)
+				if fitnessScore < 5 then
+					reachedGoalCount += 1
+				end
+				
+				-- Keep the dummy visible for a moment if it reached the goal
+				if fitnessScore < 5 then
+					task.delay(2, function()
+						if d and d.Parent then
+							d:Destroy()
+						end
+					end)
+				else
+					d:Destroy()
+				end
 			else
 				-- If dummy was destroyed, give it a bad score
 				scores[i] = {1000, genes[i]}
@@ -383,6 +433,18 @@ local function simulateEvolution()
 		-- Update all time best score 
 		if scores[1] and scores[1][1] < bestScore then
 			bestScore = scores[1][1]
+			
+			-- Check if the best dummy reached the goal
+			if scores[1][1] < 5 then
+				goalReached = true
+				print("SUCCESS! A dummy has reached the goal!")
+			end
+		end
+		
+		-- Print statistics for this generation
+		print(string.format("Generation %i complete. %i dummies reached the goal.", gen, reachedGoalCount))
+		if goalReached then
+			print("Best dummy has reached the goal! Continuing evolution to optimize path...")
 		end
 
 		-- We wipe all genes, keep the top half of the good genes
@@ -416,6 +478,11 @@ local function simulateEvolution()
 	end
 	
 	print("Genetic algorithm simulation completed!")
+	if goalReached then
+		print("SUCCESS: Dummies successfully evolved to reach the goal!")
+	else
+		print("The simulation ended without any dummies reaching the goal.")
+	end
 end
 
 -- Start the simulation
