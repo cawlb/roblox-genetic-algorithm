@@ -9,7 +9,7 @@ local MAX_RAY_ANGLE = math.pi / 3 -- Radians, this is 60 degrees
 local RAY_DEPTH = 4
 local NUM_DUMMIES = 32 -- because of later code, this number must have 4 as a factor 
 local NUM_GENS = 25 
-local GEN_TIME = 5 
+local GEN_TIME = 20 -- Changed from 5 to 20 seconds
 local MUTATION_RATE = 0.05
 
 -- Setup workspace
