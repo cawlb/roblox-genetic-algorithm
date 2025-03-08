@@ -1,7 +1,15 @@
 local ServerStorage = game:GetService("ServerStorage")
 local RunService = game:GetService("RunService")
+local PhysicsService = game:GetService("PhysicsService")
 
 print("Starting Genetic Algorithm Server...")
+
+-- Create collision group for dummies
+if not pcall(function() PhysicsService:GetCollisionGroupId("Dummies") end) then
+    PhysicsService:CreateCollisionGroup("Dummies")
+    PhysicsService:CollisionGroupSetCollidable("Dummies", "Dummies", false)
+    print("Created 'Dummies' collision group")
+end
 
 -- Constants
 local NUM_RAYS = 5
@@ -104,6 +112,8 @@ local function setupWorkspace()
         torso.Name = "HumanoidRootPart"
         torso.Size = Vector3.new(2, 2, 1)
         torso.Position = Vector3.new(0, 3, 0)
+        torso.Transparency = 0.3 -- Make parts slightly transparent
+        torso.CanCollide = false -- Disable collision
         torso.Parent = dummy
         
         -- Then create the humanoid
@@ -115,6 +125,8 @@ local function setupWorkspace()
         head.Name = "Head"
         head.Size = Vector3.new(1, 1, 1)
         head.Position = Vector3.new(0, 4.5, 0)
+        head.Transparency = 0.3 -- Make parts slightly transparent
+        head.CanCollide = false -- Disable collision
         head.Parent = dummy
         
         -- Create a weld to connect the head to the torso
@@ -246,6 +258,14 @@ local function simulateDummy(genes)
 	-- Set humanoid properties
 	humanoid.WalkSpeed = 16
 	humanoid.JumpPower = 50
+	
+	-- Set collision group to prevent dummies from colliding with each other
+	for _, part in pairs(dummy:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = "Dummies"
+			part.CanCollide = false -- Ensure all parts don't collide
+		end
+	end
 	
 	local connection
 	connection = RunService.Stepped:Connect(function()
