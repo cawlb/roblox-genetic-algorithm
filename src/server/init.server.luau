@@ -18,7 +18,7 @@ local MAX_RAY_ANGLE = math.pi / 3 -- Radians, this is 60 degrees
 local RAY_DEPTH = 4
 local NUM_DUMMIES = 32 -- because of later code, this number must have 4 as a factor 
 local NUM_GENS = 25 
-local GEN_TIME = 20 -- Changed from 5 to 20 seconds
+local GEN_TIME = 8 -- Changed from 20 to 8 seconds
 local MUTATION_RATE = 0.05
 
 -- Setup workspace
@@ -422,6 +422,29 @@ local function simulateEvolution()
 		table.sort(scores, function(a, b)
 			return a[1] < b[1]
 		end)
+		
+		-- Display detailed fitness scores for this generation
+		print("===== FITNESS SCORES FOR GENERATION " .. gen .. " =====")
+		print("Best score: " .. scores[1][1])
+		print("Top 5 scores:")
+		for i = 1, math.min(5, #scores) do
+			print("  #" .. i .. ": " .. string.format("%.2f", scores[i][1]))
+		end
+		
+		-- Calculate average score
+		local sum = 0
+		local count = 0
+		for _, score in ipairs(scores) do
+			if score[1] < 1000 then -- Only count valid scores
+				sum += score[1]
+				count += 1
+			end
+		end
+		local average = count > 0 and (sum / count) or 0
+		print("Average score: " .. string.format("%.2f", average))
+		print("Dummies that reached goal: " .. reachedGoalCount)
+		print("================================================")
+		
 		-- Update all time best score 
 		if scores[1] and scores[1][1] < bestScore then
 			bestScore = scores[1][1]
