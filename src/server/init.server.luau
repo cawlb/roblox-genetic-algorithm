@@ -410,16 +410,8 @@ local function simulateEvolution()
 					reachedGoalCount += 1
 				end
 				
-				-- Keep the dummy visible for a moment if it reached the goal
-				if fitnessScore < 5 then
-					task.delay(2, function()
-						if d and d.Parent then
-							d:Destroy()
-						end
-					end)
-				else
-					d:Destroy()
-				end
+				-- Destroy all dummies immediately after scoring
+				d:Destroy()
 			else
 				-- If dummy was destroyed, give it a bad score
 				scores[i] = {1000, genes[i]}
