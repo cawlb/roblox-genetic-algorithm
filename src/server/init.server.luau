@@ -99,71 +99,12 @@ local function setupWorkspace()
             obstacle.Material = Enum.Material.Concrete
             obstacle.Color = Color3.fromRGB(255, 0, 0) -- Make them red to indicate danger
             obstacle.Parent = obstacles
-            
-            -- Add a TouchTransmitter to detect collisions
-            local touchPart = Instance.new("Part")
-            touchPart.Name = "KillTrigger"
-            touchPart.Size = obstacle.Size + Vector3.new(0.5, 0.5, 0.5) -- Slightly larger than the obstacle
-            touchPart.Position = pos
-            touchPart.Anchored = true
-            touchPart.CanCollide = false
-            touchPart.Transparency = 1 -- Invisible
-            touchPart.Parent = obstacle
-            
-            -- Add a script to handle killing dummies that touch the obstacle
-            local touchScript = Instance.new("Script")
-            touchScript.Name = "KillScript"
-            touchScript.Source = [[
-                local part = script.Parent
-                
-                local function onTouch(otherPart)
-                    local character = otherPart.Parent
-                    if character:FindFirstChildOfClass("Humanoid") then
-                        -- This is a character, destroy it
-                        print("Dummy hit an obstacle and was destroyed!")
-                        character:Destroy()
-                    end
-                end
-                
-                part.Touched:Connect(onTouch)
-            ]]
-            touchScript.Parent = touchPart
         end
     else
         -- Update existing obstacles to be kill blocks if they aren't already
         for _, obstacle in pairs(obstacles:GetChildren()) do
             if obstacle:IsA("BasePart") then
                 obstacle.Color = Color3.fromRGB(255, 0, 0) -- Make them red
-                
-                -- Add kill trigger if it doesn't exist
-                if not obstacle:FindFirstChild("KillTrigger") then
-                    local touchPart = Instance.new("Part")
-                    touchPart.Name = "KillTrigger"
-                    touchPart.Size = obstacle.Size + Vector3.new(0.5, 0.5, 0.5)
-                    touchPart.Position = obstacle.Position
-                    touchPart.Anchored = true
-                    touchPart.CanCollide = false
-                    touchPart.Transparency = 1
-                    touchPart.Parent = obstacle
-                    
-                    local touchScript = Instance.new("Script")
-                    touchScript.Name = "KillScript"
-                    touchScript.Source = [[
-                        local part = script.Parent
-                        
-                        local function onTouch(otherPart)
-                            local character = otherPart.Parent
-                            if character:FindFirstChildOfClass("Humanoid") then
-                                -- This is a character, destroy it
-                                print("Dummy hit an obstacle and was destroyed!")
-                                character:Destroy()
-                            end
-                        end
-                        
-                        part.Touched:Connect(onTouch)
-                    ]]
-                    touchScript.Parent = touchPart
-                end
             end
         end
     end
@@ -212,6 +153,34 @@ end
 
 -- Set up the workspace with required objects
 setupWorkspace()
+
+-- Create a function to check for collisions with obstacles
+local function checkObstacleCollisions()
+    local obstacles = workspace.Platforms:FindFirstChild("Obstacles")
+    if not obstacles then return end
+    
+    -- This function will run every frame to check if dummies are touching obstacles
+    RunService.Heartbeat:Connect(function()
+        for _, obstacle in pairs(obstacles:GetChildren()) do
+            if obstacle:IsA("BasePart") then
+                -- Get all parts overlapping with this obstacle
+                local partsInObstacle = workspace:GetPartsInPart(obstacle)
+                
+                for _, part in ipairs(partsInObstacle) do
+                    -- Check if the part belongs to a dummy
+                    local model = part:FindFirstAncestorOfClass("Model")
+                    if model and model:FindFirstChildOfClass("Humanoid") then
+                        print("Dummy hit an obstacle and was destroyed!")
+                        model:Destroy()
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- Call the function to start checking for collisions
+checkObstacleCollisions()
 
 -- Set up raycast parameters
 local CAST_PARAMS = RaycastParams.new()
